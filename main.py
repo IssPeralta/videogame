@@ -1,51 +1,99 @@
+
 import pygame
-
+ 
 from camara import obtener_direccion_mano, cerrar_camara
-
+ 
+import escenario
+import sonidos
+ 
+ 
+pygame.mixer.pre_init(44100, -16, 2, 512)
 pygame.init()
-
-ancho = 800
-alto = 600
-
+ 
+ancho = escenario.ANCHO
+alto = escenario.ALTO
+ 
 pantalla = pygame.display.set_mode((ancho, alto))
 pygame.display.set_caption("Vampire Escape")
-
+ 
 reloj = pygame.time.Clock()
-
-fuente = pygame.font.SysFont("arial", 24)
-fuente_grande = pygame.font.SysFont("arial", 45)
-
-
+ 
+escenario.iniciar()
+sonidos.iniciar_audio()
+ 
+ 
 # ---------------------------
 # JUGADOR
 # ---------------------------
-
-jugador_x = 100
-jugador_y = 400
-
-velocidad = 5
-
-ancho_jugador = 100
-alto_jugador = 125
-
-
+ 
+velocidad = 3
+ 
+# Tamaño con el que se dibuja el vampiro
+ancho_sprite = 56
+alto_sprite = 70
+ 
+# La colisión se calcula solo con los pies,
+# así el vampiro cabe bien por los pasillos
+ancho_pies = 26
+alto_pies = 18
+ 
+ 
 # ---------------------------
 # CARGAR ANIMACIONES
 # ---------------------------
-
+ 
+def ajustar_frame(frame, ancho_final, alto_final):
+ 
+    rectangulo_visible = frame.get_bounding_rect()
+ 
+    if rectangulo_visible.width > 0 and rectangulo_visible.height > 0:
+        frame = frame.subsurface(rectangulo_visible).copy()
+ 
+    ancho_original = frame.get_width()
+    alto_original = frame.get_height()
+ 
+    escala = min(
+        ancho_final / ancho_original,
+        alto_final / alto_original
+    )
+ 
+    nuevo_ancho = int(ancho_original * escala)
+    nuevo_alto = int(alto_original * escala)
+ 
+    frame = pygame.transform.smoothscale(
+        frame,
+        (nuevo_ancho, nuevo_alto)
+    )
+ 
+    lienzo = pygame.Surface(
+        (ancho_final, alto_final),
+        pygame.SRCALPHA
+    )
+ 
+    x = (ancho_final - nuevo_ancho) // 2
+    y = alto_final - nuevo_alto
+ 
+    lienzo.blit(
+        frame,
+        (x, y)
+    )
+ 
+    return lienzo
+ 
+ 
 def cargar_frames(ruta, cantidad_frames):
-
+ 
     hoja = pygame.image.load(ruta).convert_alpha()
-
+ 
     ancho_hoja = hoja.get_width()
     alto_hoja = hoja.get_height()
-
+ 
     ancho_frame = ancho_hoja // cantidad_frames
-
+ 
     frames = []
-
+ 
     for i in range(cantidad_frames):
-
+ 
         frame = hoja.subsurface(
             (
                 i * ancho_frame,
@@ -54,589 +102,492 @@ def cargar_frames(ruta, cantidad_frames):
                 alto_hoja
             )
         ).copy()
-
-        rectangulo_visible = frame.get_bounding_rect()
-
-        if rectangulo_visible.width > 0 and rectangulo_visible.height > 0:
-            frame = frame.subsurface(rectangulo_visible).copy()
-
-        ancho_original = frame.get_width()
-        alto_original = frame.get_height()
-
-        escala = min(
-            100 / ancho_original,
-            125 / alto_original
+ 
+        frames.append(
+            ajustar_frame(frame, ancho_sprite, alto_sprite)
         )
-
-        nuevo_ancho = int(ancho_original * escala)
-        nuevo_alto = int(alto_original * escala)
-
-        frame = pygame.transform.scale(
-            frame,
-            (nuevo_ancho, nuevo_alto)
-        )
-
-        lienzo = pygame.Surface(
-            (100, 125),
-            pygame.SRCALPHA
-        )
-
-        x = (100 - nuevo_ancho) // 2
-        y = 125 - nuevo_alto
-
-        lienzo.blit(
-            frame,
-            (x, y)
-        )
-
-        frames.append(lienzo)
-
+ 
     return frames
-
-
+ 
+ 
 # ---------------------------
 # IMAGEN DEFAULT
 # ---------------------------
-
-jugador_default = pygame.image.load(
+ 
+imagen_default = pygame.image.load(
     "assets/vampiro/default.png"
 ).convert_alpha()
-
-rect_default = jugador_default.get_bounding_rect()
-
-jugador_default = jugador_default.subsurface(
-    rect_default
-).copy()
-
-ancho_original = jugador_default.get_width()
-alto_original = jugador_default.get_height()
-
-escala = min(
-    100 / ancho_original,
-    125 / alto_original
-)
-
-nuevo_ancho = int(ancho_original * escala)
-nuevo_alto = int(alto_original * escala)
-
-jugador_default = pygame.transform.scale(
-    jugador_default,
-    (nuevo_ancho, nuevo_alto)
-)
-
-lienzo_default = pygame.Surface(
-    (100, 125),
-    pygame.SRCALPHA
-)
-
-x_default = (100 - nuevo_ancho) // 2
-y_default = 125 - nuevo_alto
-
-lienzo_default.blit(
-    jugador_default,
-    (x_default, y_default)
-)
-
-jugador_default = lienzo_default
-
-
+ 
+jugador_default = ajustar_frame(imagen_default, ancho_sprite, alto_sprite)
+ 
+# Versión grande para la pantalla de inicio
+retrato_vampiro = ajustar_frame(imagen_default, 150, 190)
+ 
+ 
 # ---------------------------
 # SPRITES
 # ---------------------------
-
+ 
 frames_arriba = cargar_frames(
     "assets/vampiro/arriba.png",
     6
 )
-
+ 
 frames_abajo = cargar_frames(
     "assets/vampiro/abajo.png",
     6
 )
-
+ 
 frames_izquierda = cargar_frames(
     "assets/vampiro/izquierda.png",
     6
 )
-
+ 
 frames_derecha = cargar_frames(
     "assets/vampiro/derecha.png",
     6
 )
-
-
+ 
+ 
 # ---------------------------
 # ANIMACIÓN
 # ---------------------------
-
-direccion = "abajo"
-
-frame_actual = 0
-contador_animacion = 0
+ 
 velocidad_animacion = 7
-
-
+ 
+ 
 # ---------------------------
-# ESCENARIO
+# NUEVA PARTIDA
 # ---------------------------
-
-paredes = [
-
-    pygame.Rect(
-        0,
-        0,
-        800,
-        30
-    ),
-
-    pygame.Rect(
-        0,
-        570,
-        800,
-        30
-    ),
-
-    pygame.Rect(
-        0,
-        0,
-        30,
-        600
-    ),
-
-    pygame.Rect(
-        770,
-        0,
-        30,
-        600
-    ),
-
-    pygame.Rect(
-        200,
-        120,
-        30,
-        300
-    ),
-
-    pygame.Rect(
-        400,
-        250,
-        250,
-        30
-    ),
-
-    pygame.Rect(
-        520,
-        400,
-        30,
-        150
-    )
-]
-
-
-# ---------------------------
-# OBJETOS
-# ---------------------------
-
-objetos = [
-
-    pygame.Rect(
-        100,
-        100,
-        25,
-        25
-    ),
-
-    pygame.Rect(
-        350,
-        450,
-        25,
-        25
-    ),
-
-    pygame.Rect(
-        680,
-        150,
-        25,
-        25
-    )
-]
-
-objetos_recogidos = 0
-
-
-# ---------------------------
-# PUERTA
-# ---------------------------
-
-puerta = pygame.Rect(
-    700,
-    500,
-    50,
-    70
-)
-
-
+ 
+def nueva_partida():
+ 
+    global laberinto, paredes, objetos, puerta
+    global pies, objetos_recogidos, direccion
+    global frame_actual, contador_animacion
+    global tiempo_inicio, tiempo_final
+    global mensaje, mensaje_hasta
+ 
+    # Cada partida genera un laberinto diferente
+    laberinto = escenario.Laberinto()
+ 
+    paredes = laberinto.paredes
+    objetos = laberinto.objetos
+    puerta = laberinto.puerta
+ 
+    pies = pygame.Rect(0, 0, ancho_pies, alto_pies)
+    pies.center = laberinto.inicio
+ 
+    objetos_recogidos = 0
+ 
+    direccion = "abajo"
+    frame_actual = 0
+    contador_animacion = 0
+ 
+    tiempo_inicio = pygame.time.get_ticks()
+    tiempo_final = 0
+ 
+    mensaje = "¡Encuentra las 3 gotas de sangre!"
+    mensaje_hasta = pygame.time.get_ticks() + 2500
+ 
+ 
+def mostrar_mensaje(texto, duracion_ms=2000):
+ 
+    global mensaje, mensaje_hasta
+ 
+    mensaje = texto
+    mensaje_hasta = pygame.time.get_ticks() + duracion_ms
+ 
+ 
 # ---------------------------
 # FUNCIÓN DE COLISIÓN
 # ---------------------------
-
+ 
 def hay_colision(rectangulo):
-
+ 
     for pared in paredes:
-
+ 
         if rectangulo.colliderect(pared):
-
+ 
             return True
-
+ 
     return False
-
-
+ 
+ 
 # ---------------------------
 # JUEGO
 # ---------------------------
-
+ 
+nueva_partida()
+ 
+estado = "inicio"          # "inicio", "jugando" o "victoria"
+progreso_mano = 0          # para empezar levantando la mano
+tiempo_pantalla = 0        # segundos desde que se abrió la pantalla actual
+ 
+ultimo_choque = 0
+contador_pasos = 0
+ 
+sonidos.iniciar_musica()
+ 
 ejecutando = True
-ganaste = False
-
-
+ 
+ 
 while ejecutando:
-
-    reloj.tick(60)
-
+ 
+    dt = reloj.tick(60) / 1000
+    t = pygame.time.get_ticks() / 1000
+    tiempo_pantalla += dt
+ 
+    empezar = False
+ 
     for evento in pygame.event.get():
-
+ 
         if evento.type == pygame.QUIT:
-
+ 
             ejecutando = False
-
-
+ 
+        elif evento.type == pygame.KEYDOWN:
+ 
+            if evento.key == pygame.K_ESCAPE:
+                ejecutando = False
+ 
+            elif estado == "inicio" and evento.key in (pygame.K_SPACE, pygame.K_RETURN):
+                empezar = True
+ 
+            elif estado == "victoria" and evento.key in (pygame.K_r, pygame.K_SPACE, pygame.K_RETURN):
+                empezar = True
+ 
+ 
     # -----------------------
     # CONTROLES
     # -----------------------
-
+ 
     teclas = pygame.key.get_pressed()
-
+ 
     direccion_mano = obtener_direccion_mano()
-
+ 
+ 
+    # -----------------------
+    # PANTALLA DE INICIO / VICTORIA
+    # -----------------------
+ 
+    if estado in ("inicio", "victoria"):
+ 
+        # Mantener la mano arriba 1 segundo también sirve para empezar
+        if direccion_mano == "arriba":
+            progreso_mano += dt
+        else:
+            progreso_mano = max(0, progreso_mano - dt * 2)
+ 
+        if progreso_mano >= 1:
+            empezar = True
+ 
+        if empezar:
+ 
+            if estado == "victoria":
+                nueva_partida()
+            else:
+                tiempo_inicio = pygame.time.get_ticks()
+                mostrar_mensaje("¡Encuentra las 3 gotas de sangre!", 2500)
+ 
+            estado = "jugando"
+            progreso_mano = 0
+            tiempo_pantalla = 0
+ 
+            sonidos.reproducir("inicio")
+            sonidos.iniciar_musica()
+ 
+        elif estado == "inicio":
+ 
+            escenario.dibujar_inicio(
+                pantalla,
+                t,
+                dt,
+                progreso_mano,
+                retrato_vampiro
+            )
+ 
+        else:
+ 
+            escenario.dibujar_victoria(
+                pantalla,
+                tiempo_pantalla,
+                dt,
+                tiempo_final,
+                progreso_mano
+            )
+ 
+        pygame.display.update()
+ 
+        continue
+ 
+ 
+    # -----------------------
+    # MOVIMIENTO
+    # -----------------------
+ 
     movimiento_x = 0
     movimiento_y = 0
-
+ 
     moviendo = False
-
-
+ 
+ 
     if (
         teclas[pygame.K_LEFT]
         or direccion_mano == "izquierda"
     ):
-
+ 
         movimiento_x = -velocidad
-
+ 
         direccion = "izquierda"
-
+ 
         moviendo = True
-
-
+ 
+ 
     elif (
         teclas[pygame.K_RIGHT]
         or direccion_mano == "derecha"
     ):
-
+ 
         movimiento_x = velocidad
-
+ 
         direccion = "derecha"
-
+ 
         moviendo = True
-
-
+ 
+ 
     elif (
         teclas[pygame.K_UP]
         or direccion_mano == "arriba"
     ):
-
+ 
         movimiento_y = -velocidad
-
+ 
         direccion = "arriba"
-
+ 
         moviendo = True
-
-
+ 
+ 
     elif (
         teclas[pygame.K_DOWN]
         or direccion_mano == "abajo"
     ):
-
+ 
         movimiento_y = velocidad
-
+ 
         direccion = "abajo"
-
+ 
         moviendo = True
-
-
+ 
+ 
+    choco = False
+ 
     # -----------------------
     # COLISIÓN HORIZONTAL
     # -----------------------
-
-    nuevo_rect = pygame.Rect(
-        jugador_x + movimiento_x,
-        jugador_y,
-        ancho_jugador,
-        alto_jugador
-    )
-
+ 
+    nuevo_rect = pies.move(movimiento_x, 0)
+ 
     if not hay_colision(nuevo_rect):
-
-        jugador_x += movimiento_x
-
-
+ 
+        pies = nuevo_rect
+ 
+    elif movimiento_x != 0:
+ 
+        choco = True
+ 
+ 
     # -----------------------
     # COLISIÓN VERTICAL
     # -----------------------
-
-    nuevo_rect = pygame.Rect(
-        jugador_x,
-        jugador_y + movimiento_y,
-        ancho_jugador,
-        alto_jugador
-    )
-
+ 
+    nuevo_rect = pies.move(0, movimiento_y)
+ 
     if not hay_colision(nuevo_rect):
-
-        jugador_y += movimiento_y
-
-
+ 
+        pies = nuevo_rect
+ 
+    elif movimiento_y != 0:
+ 
+        choco = True
+ 
+ 
     # -----------------------
-    # RECTÁNGULO DEL JUGADOR
+    # SONIDOS DE MOVIMIENTO
     # -----------------------
-
-    jugador_rect = pygame.Rect(
-        jugador_x,
-        jugador_y,
-        ancho_jugador,
-        alto_jugador
-    )
-
-
+ 
+    ahora = pygame.time.get_ticks()
+ 
+    if choco and ahora - ultimo_choque > 500:
+ 
+        sonidos.reproducir("choque")
+ 
+        ultimo_choque = ahora
+ 
+    if moviendo and not choco:
+ 
+        contador_pasos += 1
+ 
+        if contador_pasos >= 16:
+ 
+            sonidos.reproducir("paso")
+ 
+            contador_pasos = 0
+ 
+ 
     # -----------------------
     # RECOGER OBJETOS
     # -----------------------
-
+ 
     for objeto in objetos[:]:
-
-        if jugador_rect.colliderect(objeto):
-
+ 
+        if pies.colliderect(objeto.inflate(10, 20)):
+ 
             objetos.remove(objeto)
-
+ 
             objetos_recogidos += 1
-
-
+ 
+            if objetos_recogidos == 3:
+ 
+                sonidos.reproducir("puerta")
+ 
+                mostrar_mensaje("¡La puerta se abrió! Busca la salida", 2500)
+ 
+            else:
+ 
+                sonidos.reproducir("recoger")
+ 
+                mostrar_mensaje(f"Gota de sangre {objetos_recogidos}/3", 1200)
+ 
+ 
     # -----------------------
     # PUERTA
     # -----------------------
-
-    if objetos_recogidos == 3:
-
-        if jugador_rect.colliderect(puerta):
-
-            ganaste = True
-
-
+ 
+    if pies.colliderect(puerta):
+ 
+        if objetos_recogidos == 3:
+ 
+            tiempo_final = (ahora - tiempo_inicio) / 1000
+ 
+            sonidos.reproducir("victoria")
+ 
+            estado = "victoria"
+            tiempo_pantalla = 0
+            progreso_mano = 0
+ 
+            continue
+ 
+        elif ahora > mensaje_hasta:
+ 
+            mostrar_mensaje("La puerta está cerrada... faltan gotas", 1500)
+ 
+ 
     # -----------------------
     # ANIMACIÓN
     # -----------------------
-
+ 
     if moviendo:
-
+ 
         contador_animacion += 1
-
+ 
         if contador_animacion >= velocidad_animacion:
-
+ 
             frame_actual += 1
-
+ 
             contador_animacion = 0
-
+ 
             if frame_actual >= 6:
-
+ 
                 frame_actual = 0
-
+ 
     else:
-
+ 
         frame_actual = 0
         contador_animacion = 0
-
-
+ 
+ 
     if moviendo:
-
+ 
         if direccion == "arriba":
-
+ 
             imagen_jugador = frames_arriba[
                 frame_actual
             ]
-
+ 
         elif direccion == "abajo":
-
+ 
             imagen_jugador = frames_abajo[
                 frame_actual
             ]
-
+ 
         elif direccion == "izquierda":
-
+ 
             imagen_jugador = frames_izquierda[
                 frame_actual
             ]
-
+ 
         elif direccion == "derecha":
-
+ 
             imagen_jugador = frames_derecha[
                 frame_actual
             ]
-
+ 
     else:
-
+ 
         imagen_jugador = jugador_default
-
-
+ 
+ 
     # -----------------------
     # DIBUJAR ESCENARIO
     # -----------------------
-
-    pantalla.fill(
-        (25, 20, 30)
-    )
-
-
-    # PAREDES
-
-    for pared in paredes:
-
-        pygame.draw.rect(
-            pantalla,
-            (70, 60, 80),
-            pared
-        )
-
-
-    # OBJETOS
-
-    for objeto in objetos:
-
-        pygame.draw.rect(
-            pantalla,
-            (180, 30, 50),
-            objeto
-        )
-
-        pygame.draw.circle(
-            pantalla,
-            (255, 80, 100),
-            objeto.center,
-            7
-        )
-
-
-    # PUERTA
-
-    if objetos_recogidos == 3:
-
-        pygame.draw.rect(
-            pantalla,
-            (80, 180, 100),
-            puerta
-        )
-
-    else:
-
-        pygame.draw.rect(
-            pantalla,
-            (100, 40, 40),
-            puerta
-        )
-
-
-    # JUGADOR
-
+ 
+    escenario.dibujar_fondo_juego(pantalla, laberinto, t)
+ 
+    escenario.dibujar_puerta(pantalla, puerta, objetos_recogidos == 3, t)
+ 
+    escenario.dibujar_frascos(pantalla, objetos, t)
+ 
+ 
+    # SOMBRA Y JUGADOR
+ 
+    sombra = pygame.Surface((36, 12), pygame.SRCALPHA)
+    pygame.draw.ellipse(sombra, (0, 0, 0, 110), (0, 0, 36, 12))
+    pantalla.blit(sombra, (pies.centerx - 18, pies.bottom - 8))
+ 
     pantalla.blit(
         imagen_jugador,
         (
-            jugador_x,
-            jugador_y
+            pies.centerx - ancho_sprite // 2,
+            pies.bottom + 2 - alto_sprite
         )
     )
-
-
+ 
+ 
+    # EFECTOS (niebla, murciélagos, bordes oscuros)
+ 
+    escenario.dibujar_efectos(pantalla, t, dt)
+ 
+ 
     # -----------------------
     # INTERFAZ
     # -----------------------
-
-    texto_objetos = fuente.render(
-        f"Objetos: {objetos_recogidos}/3",
-        True,
-        (255, 255, 255)
+ 
+    segundos = (pygame.time.get_ticks() - tiempo_inicio) / 1000
+ 
+    texto_mensaje = mensaje if pygame.time.get_ticks() < mensaje_hasta else None
+ 
+    escenario.dibujar_hud(
+        pantalla,
+        objetos_recogidos,
+        segundos,
+        texto_mensaje
     )
-
-    pantalla.blit(
-        texto_objetos,
-        (40, 40)
-    )
-
-
-    if objetos_recogidos < 3:
-
-        texto_puerta = fuente.render(
-            "Encuentra los 3 objetos para abrir la puerta",
-            True,
-            (255, 255, 255)
-        )
-
-    else:
-
-        texto_puerta = fuente.render(
-            "La puerta está abierta",
-            True,
-            (100, 255, 120)
-        )
-
-    pantalla.blit(
-        texto_puerta,
-        (250, 40)
-    )
-
-
-    # -----------------------
-    # PANTALLA DE VICTORIA
-    # -----------------------
-
-    if ganaste:
-
-        pantalla.fill(
-            (20, 15, 25)
-        )
-
-        texto_ganar = fuente_grande.render(
-            "¡ESCAPASTE!",
-            True,
-            (255, 255, 255)
-        )
-
-        pantalla.blit(
-            texto_ganar,
-            (280, 240)
-        )
-
-        texto_salir = fuente.render(
-            "Cierra la ventana para salir",
-            True,
-            (200, 200, 200)
-        )
-
-        pantalla.blit(
-            texto_salir,
-            (285, 310)
-        )
-
-
+ 
+ 
     pygame.display.update()
-
-
+ 
+ 
 cerrar_camara()
-
+ 
 pygame.quit()
